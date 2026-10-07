@@ -1,0 +1,14 @@
+Acquisition :
+
+			Micro & accéléromètre
+					 |
+					 |
+					 |
+	Moteur -------- RPI --------- Relay reed (cadenseur)
+					 |
+					 | --> Ethernet
+					 |
+					PC (stockage et traitement des données)
+					 |
+					 |
+		 Influx BD ? Mongo DB ?
