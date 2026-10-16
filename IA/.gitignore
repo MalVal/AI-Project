@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+.ipynb_checkpoints/
+Spectogramme/
+Spectrogramme/
+DataSetsAnalyse/
+Audio/
+*.png
+*.wav
