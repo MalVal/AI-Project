@@ -1,15 +1,35 @@
-const unsigned long INTERVAL_US = 125; // 8000 Hz
-unsigned long nextTime;
+
+const unsigned long INTERVAL_US = 125;
+unsigned long nextTime = 0;
+
+float dc = 0;
+const float GAIN = 8.0f;
 
 void setup() {
   Serial.begin(115200);
-  // ADC plus rapide (prescaler 16) pour tenir 8 kHz
-  ADCSRA = (ADCSRA & 0xF8) | 0x04;
+
+  // ADC plus rapide : horloge ADC = 500 kHz
+  ADCSRA = (ADCSRA & 0xF8) | 0x05;
+
+  // Initialise la moyenne à partir de la première mesure
+  dc = analogRead(A0);
   nextTime = micros();
 }
 
 void loop() {
-  while ((long)(micros() - nextTime) < 0) {}
+  while ((long)(micros() - nextTime) < 0) {
+  }
+
   nextTime += INTERVAL_US;
-  Serial.write(analogRead(A0) >> 2); // 10 bits -> 8 bits
+
+  int raw = analogRead(A0);
+
+  // Retire progressivement la composante continue
+  dc += 0.001f * (raw - dc);
+
+  // Amplifie les variations du microphone
+  int sample = 128 + (int)((raw - dc) * GAIN);
+  sample = constrain(sample, 0, 255);
+
+  Serial.write((uint8_t)sample);
 }
