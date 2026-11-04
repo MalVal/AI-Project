@@ -1,0 +1,33 @@
+1) Rapport de réunion :
+
+	- Valentin prend les notes
+	- Stockage sur teams
+	
+2) Outils pour SCRUM :
+
+	- Github project ?
+	- Jira ?
+	
+3) Documentation : 
+
+	- Github wiki
+	- Wiki en Français
+	- Code en anglais
+	
+4) Capteurs : 
+
+	- Micro
+	- Accéléromètre
+	
+5) Acquisition :
+
+	- Capteurs
+		|
+	- ESP32 (Pourqoi le mettre ? On peut le brancher directement sur le RPI)
+		|
+	- RPI --------- Relay reed (cadenseur)
+		|
+	- PC
+
+	- ESP32 envoie constamment les données au RPI.
+	- Quand le cadenseur envoie son message, le RPI envoie au PC.
