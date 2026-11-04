@@ -31,10 +31,6 @@ for engineType in enginesTypes:
         plt.axis("off")
         plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
-        #plt.xlabel("Temps (s)")
-        #plt.ylabel("Fréquence (Hz)")
-        #plt.title(f"Spectrogramme {engineType} {i}")
-        #plt.colorbar(label="Puissance (dB)")
         plt.savefig(f"DataSetsAnalyse/Spectogramme/Spectrogramme_{engineType}_{i}.png", dpi=300, bbox_inches="tight", pad_inches=0)
         plt.close()
         print(f"Spectrogramme enregistré : {engineType} {i}")
