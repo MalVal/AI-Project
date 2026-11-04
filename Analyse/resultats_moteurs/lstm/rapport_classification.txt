@@ -1,0 +1,9 @@
+              precision    recall  f1-score   support
+
+        good       0.46      0.86      0.60        14
+      broken       0.00      0.00      0.00        14
+   heavyload       0.88      1.00      0.93        14
+
+    accuracy                           0.62        42
+   macro avg       0.45      0.62      0.51        42
+weighted avg       0.45      0.62      0.51        42
