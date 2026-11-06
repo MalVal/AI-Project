@@ -11,7 +11,7 @@ warnings.filterwarnings("ignore", category=WavFileWarning)
 motor = "atmo_high_"
 enginesTypes = ["engine1_good", "engine2_broken", "engine3_heavyload"]
 
-os.makedirs("DataSetsAnalyse/Spectogramme_Inter", exist_ok=True)
+os.makedirs("DataSetsAnalyse/Spectogramme/Spectogramme_Inter", exist_ok=True)
 
 # Nombre de spectrogrammes par fichier audio
 nombre_variations = 10
@@ -55,7 +55,7 @@ for engineType in enginesTypes:
             plt.axis("off")
             plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
-            plt.savefig(f"DataSetsAnalyse/Spectogramme_Inter/Spectrogramme_{engineType}_{i}_{j}.png", dpi=300, bbox_inches="tight", pad_inches=0)
+            plt.savefig(f"DataSetsAnalyse/Spectogramme/Spectogramme_Inter/Spectrogramme_{engineType}_{i}_{j}.png", dpi=300, bbox_inches="tight", pad_inches=0)
 
             plt.close()
 

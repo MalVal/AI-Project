@@ -10,7 +10,7 @@ warnings.filterwarnings("ignore", category=WavFileWarning)
 
 motor = "atmo_high"
 enginesTypes = ["engine1_good", "engine2_broken", "engine3_heavyload"]
-os.makedirs("DataSetsAnalyse/Spectogramme_gene", exist_ok=True)
+os.makedirs("DataSetsAnalyse/Spectogramme/Spectogramme_gene", exist_ok=True)
 
 for engineType in enginesTypes:
 
@@ -29,7 +29,7 @@ for engineType in enginesTypes:
     plt.axis("off")
     plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
-    plt.savefig(f"DataSetsAnalyse/Spectogramme_gene/Spectrogramme_{engineType}.png", dpi=300, bbox_inches="tight", pad_inches=0)
+    plt.savefig(f"DataSetsAnalyse/Spectogramme/Spectogramme_gene/Spectrogramme_{engineType}.png", dpi=300, bbox_inches="tight", pad_inches=0)
     plt.close()
     print(f"Spectrogramme enregistré : {engineType}")
 print("Tous les spectrogrammes ont été enregistrés !")
