@@ -68,6 +68,8 @@ void ReedRelay::run() {
         return;
     }
 
+    std::cout << "[REED] Relais Reed ready on " << serialPortPath << std::endl;
+
     std::string line;
     line.reserve(32);
     char buffer[64];
