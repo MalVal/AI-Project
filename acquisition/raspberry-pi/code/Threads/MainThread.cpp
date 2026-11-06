@@ -57,7 +57,7 @@ void MainThread::run() {
 
     ReedRelay reed(Configuration::SERIAL_PORT_RELAIS_REED, onLap);
     Accelerometer accel(currentFileIndex);
-    Microphone microphone(currentFileIndex);
+    Microphone microphone(Configuration::SERIAL_PORT_MICRO, currentFileIndex);
 
     reed.start();
     accel.start();
