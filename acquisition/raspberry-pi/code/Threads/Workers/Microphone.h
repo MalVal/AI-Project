@@ -59,7 +59,7 @@ private:
     uint64_t activeFileIndex = 0;
 
     // Output directory
-    std::string outputDirectory = "enregistrements";
+    std::string outputDirectory = "microphone";
 };
 
 #endif
