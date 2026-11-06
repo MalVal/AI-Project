@@ -22,8 +22,8 @@ private:
     void run();
     int initializeAccelerometer(int& address);
     bool readAcceleration(double& x, double& y, double& z);
-    
-    // Utilitaires I2C
+
+    // I2C helper methods
     bool writeRegister(uint8_t reg, uint8_t value);
     bool readRegisters(uint8_t reg, uint8_t* data, size_t len);
     bool readRegister(uint8_t reg, uint8_t& value);
@@ -35,4 +35,4 @@ private:
     std::thread workerThread;
 };
 
-#endif // ACQUISITION_ACCELEROMETER_H
+#endif

@@ -3,6 +3,7 @@
 
 #include <atomic>
 #include <thread>
+#include <fstream>
 
 #include "Workers/ReedLapEvent.h"
 

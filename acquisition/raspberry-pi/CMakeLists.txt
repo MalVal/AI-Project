@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 4.3)
+cmake_minimum_required(VERSION 3.5)
 project(RaspberryPi)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -13,4 +13,4 @@ add_executable(Acquisition code/main.cpp
         code/Threads/Workers/ReedRelay.cpp
         code/Threads/Workers/ReedRelay.h
         code/Threads/Workers/ReedLapEvent.h
-        code/configuration.h)
+        code/Configuration.h)

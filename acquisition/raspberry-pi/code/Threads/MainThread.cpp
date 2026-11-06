@@ -17,7 +17,9 @@ MainThread::~MainThread() {
 }
 
 void MainThread::waitEnd() {
-    workerThread.join();
+    if (workerThread.joinable()) {
+        workerThread.join();
+    }
 }
 
 void MainThread::start() {
