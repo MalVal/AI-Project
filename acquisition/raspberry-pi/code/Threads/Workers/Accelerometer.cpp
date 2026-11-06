@@ -47,34 +47,58 @@ bool Accelerometer::readRegister(uint8_t reg, uint8_t& value) {
 }
 
 int Accelerometer::initializeAccelerometer(int& address) {
-    address = 0x1D;
     i2c_fd = open("/dev/i2c-1", O_RDWR);
-
     if (i2c_fd < 0) {
         std::cerr << "[ACCEL] Cannot open I2C device: " << std::strerror(errno) << '\n';
         return -1;
     }
 
-    if (ioctl(i2c_fd, I2C_SLAVE, address) < 0) {
-        std::cerr << "[ACCEL] Cannot select address: " << std::strerror(errno) << '\n';
-        close(i2c_fd);
-        i2c_fd = -1;
-        return -1;
-    }
-
+    // Le MMA8452 utilise 0x1D ou 0x1C selon l'etat de la broche SA0
+    const uint8_t possibleAddresses[] = {0x1D, 0x1C};
+    bool detected = false;
     uint8_t id = 0;
 
-    // MMA8452 WHO_AM_I register check (0x0D must return 0x2A)
-    if (!readRegister(0x0D, id) || id != 0x2A ||
-        !writeRegister(0x2A, 0x00) ||  // Standby mode
-        !writeRegister(0x2A, 0x19)) {  // Active mode, 100Hz ODR
-        std::cerr << "[ACCEL] MMA8452 initialization failed\n";
+    for (uint8_t addr : possibleAddresses) {
+        if (ioctl(i2c_fd, I2C_SLAVE, addr) < 0) {
+            continue;
+        }
+
+        if (readRegister(0x0D, id)) {
+            address = addr;
+            detected = true;
+            break;
+        }
+    }
+
+    if (!detected) {
+        std::cerr << "[ACCEL] Sensor not responding on 0x1D or 0x1C: "
+                  << std::strerror(errno) << '\n';
         close(i2c_fd);
         i2c_fd = -1;
         return -1;
     }
 
-    std::cout << "[ACCEL] MMA8452 detected at 0x1D\n";
+    // Verification de l'identifiant WHO_AM_I
+    // MMA8452Q = 0x2A | MMA8451Q = 0x1A | MMA8453Q = 0x3A
+    if (id != 0x2A && id != 0x1A && id != 0x3A) {
+        std::cerr << "[ACCEL] Unexpected chip ID: 0x" << std::hex << static_cast<int>(id)
+                  << std::dec << " (expected 0x2A)\n";
+        close(i2c_fd);
+        i2c_fd = -1;
+        return -1;
+    }
+
+    // Configuration : Standby puis Actif
+    if (!writeRegister(0x2A, 0x00) || !writeRegister(0x2A, 0x19)) {
+        std::cerr << "[ACCEL] Failed to configure control registers: "
+                  << std::strerror(errno) << '\n';
+        close(i2c_fd);
+        i2c_fd = -1;
+        return -1;
+    }
+
+    std::cout << "[ACCEL] Accelerometer detected at 0x" << std::hex << address
+              << " with chip ID 0x" << static_cast<int>(id) << std::dec << '\n';
     return 0;
 }
 
