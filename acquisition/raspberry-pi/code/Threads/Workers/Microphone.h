@@ -11,10 +11,13 @@
 class Microphone {
 public:
     explicit Microphone(const std::atomic<uint64_t>& fileIndexRef);
+
+    Microphone(std::string portPath, const std::atomic<uint64_t> &fileIndexRef);
+
     ~Microphone();
 
     // Prevent copy
-    Microphone(const Microphone&) = delete;
+    Microphone(std::string portPath, const Microphone&) = delete;
     Microphone& operator=(const Microphone&) = delete;
 
     // Thread lifecycle
@@ -22,6 +25,8 @@ public:
     void stop();
 
 private:
+    std::string serialPortPath;
+
     void run();
 
     // Serial communication
@@ -41,7 +46,6 @@ private:
     std::thread workerThread;
 
     // Serial configuration
-    std::string serialPort = "/dev/ttyUSB0";
     int serialFd = -1;
 
     // Audio configuration

@@ -43,9 +43,8 @@ static void writeLE32(std::ofstream& file, uint32_t value)
 // CONSTRUCTOR / DESTRUCTOR
 // --------------------------------------------------
 
-Microphone::Microphone(
-    const std::atomic<uint64_t>& fileIndexRef)
-    : sharedFileIndex(fileIndexRef)
+Microphone::Microphone(std::string portPath, const std::atomic<uint64_t>& fileIndexRef)
+    : serialPortPath(portPath), sharedFileIndex(fileIndexRef)
 {
 }
 
@@ -88,14 +87,14 @@ void Microphone::stop()
 bool Microphone::openSerialPort()
 {
     serialFd = open(
-        serialPort.c_str(),
+        serialPortPath.c_str(),
         O_RDONLY | O_NOCTTY | O_NONBLOCK
     );
 
     if (serialFd < 0)
     {
         std::cerr << "[AUDIO] Failed to open "
-                  << serialPort << " : "
+                  << serialPortPath << " : "
                   << strerror(errno) << '\n';
         return false;
     }
@@ -129,7 +128,7 @@ bool Microphone::openSerialPort()
 
     tcflush(serialFd, TCIFLUSH);
 
-    std::cout << "[AUDIO] Serial port opened: " << serialPort << '\n';
+    std::cout << "[AUDIO] Serial port opened: " << serialPortPath << '\n';
 
     return true;
 }

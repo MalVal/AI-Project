@@ -55,7 +55,7 @@ void MainThread::run() {
         this->handleLapEvent(lap);
     };
 
-    ReedRelay reed("/dev/ttyACM0", onLap);
+    ReedRelay reed(Configuration::SERIAL_PORT_RELAIS_REED, onLap);
     Accelerometer accel(currentFileIndex);
     Microphone microphone(currentFileIndex);
 
