@@ -90,6 +90,7 @@ void ReedRelay::run() {
                     line.pop_back();
                 }
 
+                // IMPORTANT: Verifier que la chaine n'est pas vide APRES le nettoyage
                 if (!line.empty()) {
                     char* endPtr = nullptr;
                     unsigned long parsedTime = std::strtoul(line.c_str(), &endPtr, 10);
@@ -97,7 +98,7 @@ void ReedRelay::run() {
                     ReedLapEvent event;
                     event.lapIndex = ++currentLap;
 
-                    // If Arduino didn't send a pure number, fallback to Raspberry Pi monotonic clock
+                    // Verification : endPtr doit pointer vers la fin de chaine sans caractere non-numerique
                     if (endPtr == line.c_str() || *endPtr != '\0') {
                         std::cerr << "[REED] Non-numeric serial line: '" << line
                                   << "' -> Fallback to system timestamp\n";
@@ -113,6 +114,8 @@ void ReedRelay::run() {
                         lapCallback(event);
                     }
                 }
+
+                // On vide toujours le buffer de ligne pour le prochain message
                 line.clear();
             } else if (line.size() < 64) {
                 line += byte;
