@@ -16,10 +16,6 @@ public:
 
     ~Microphone();
 
-    // Prevent copy
-    Microphone(std::string portPath, const Microphone&) = delete;
-    Microphone& operator=(const Microphone&) = delete;
-
     // Thread lifecycle
     void start();
     void stop();
