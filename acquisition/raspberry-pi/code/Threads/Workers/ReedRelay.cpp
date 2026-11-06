@@ -85,39 +85,41 @@ void ReedRelay::run() {
             const char byte = buffer[i];
 
             if (byte == '\n') {
-                // Trim trailing carriage return and whitespace
-                while (!line.empty() && (line.back() == '\r' || line.back() == ' ' || line.back() == '\t')) {
+                // Nettoyage des espaces résiduels
+                while (!line.empty() && (line.back() == ' ' || line.back() == '\t')) {
                     line.pop_back();
                 }
 
-                // IMPORTANT: Verifier que la chaine n'est pas vide APRES le nettoyage
                 if (!line.empty()) {
                     char* endPtr = nullptr;
                     unsigned long parsedTime = std::strtoul(line.c_str(), &endPtr, 10);
 
-                    ReedLapEvent event;
-                    event.lapIndex = ++currentLap;
-
-                    // Verification : endPtr doit pointer vers la fin de chaine sans caractere non-numerique
-                    if (endPtr == line.c_str() || *endPtr != '\0') {
-                        std::cerr << "[REED] Non-numeric serial line: '" << line
-                                  << "' -> Fallback to system timestamp\n";
-                        auto now = std::chrono::steady_clock::now().time_since_epoch();
-                        event.arduinoTimestampMs = static_cast<uint32_t>(
-                            std::chrono::duration_cast<std::chrono::milliseconds>(now).count()
-                        );
-                    } else {
+                    // Si endPtr est arrivé au bout ('\0') sans encombre, c'est un vrai nombre !
+                    if (endPtr != line.c_str() && *endPtr == '\0') {
+                        ReedLapEvent event;
+                        event.lapIndex = ++currentLap;
                         event.arduinoTimestampMs = static_cast<uint32_t>(parsedTime);
-                    }
 
-                    if (lapCallback) {
-                        lapCallback(event);
+                        if (lapCallback) {
+                            lapCallback(event);
+                        }
+                    } else {
+                        // C'est un parasite (ex: texte ou symbole inattendu), on l'ignore silencieusement
+                        std::cerr << "[REED] Bruit au demarrage ignore : " << line << "\n";
                     }
                 }
 
-                // On vide toujours le buffer de ligne pour le prochain message
+                // On réinitialise pour la ligne suivante
                 line.clear();
-            } else if (line.size() < 64) {
+
+            } else if (byte == '\r') {
+                // On jette directement les retours chariot, ils sont inutiles
+                continue;
+
+            } else if (line.size() < 64 && byte >= 32 && byte <= 126) {
+                // IMPORTANT : Filtre anti-parasites !
+                // On n'enregistre que les caractères ASCII imprimables (chiffres, lettres, ponctuation).
+                // Cela détruit instantanément les octets \0 ou le bruit électrique.
                 line += byte;
             }
         }
