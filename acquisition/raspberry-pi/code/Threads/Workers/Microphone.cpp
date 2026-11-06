@@ -182,12 +182,11 @@ bool Microphone::createNewWavFile(uint64_t fileIndex)
     audioBytesWritten = 0;
     activeFileIndex = fileIndex;
 
-    // Reserve 44 bytes for WAV header
-    char header[44] = {};
-    wavFile.write(header, sizeof(header));
+    // Écrit un véritable en-tête WAV valide dès le départ (avec une taille de 0)
+    // Cela garantit que le fichier est lisible même en cas de crash du programme.
+    writeWavHeader(0);
 
-    std::cout << "[AUDIO] New file: "
-              << filename.str() << '\n';
+    std::cout << "[AUDIO] New file: " << filename.str() << '\n';
 
     return wavFile.good();
 }
