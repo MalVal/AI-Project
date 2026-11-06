@@ -22,12 +22,23 @@ void setup() {
     attachInterrupt(digitalPinToInterrupt(REED_PIN), onReedTrigger, FALLING);
 
     delay(100);
+
+    Serial.println("KY-021 INITIALISE");
+    Serial.println("En attente d'un passage...");
 }
 
 void loop() {
     if (newLapFlag) {
+        noInterrupts();
+        unsigned long lapTime = recordedLapMs;
         newLapFlag = false;
+        interrupts();
 
-        Serial.println(recordedLapMs);
+        Serial.println("----------------------------");
+        Serial.println("NOUVEAU PASSAGE DETECTE !");
+        Serial.print("Temps : ");
+        Serial.print(lapTime / 1000.0, 3);
+        Serial.println(" secondes");
+        Serial.println("----------------------------");
     }
 }

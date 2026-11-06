@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
+#include <linux/i2c.h>
 #include <linux/i2c-dev.h>
 
 Accelerometer::Accelerometer(const std::atomic<uint64_t>& fileIndexRef)
@@ -37,9 +38,27 @@ bool Accelerometer::writeRegister(uint8_t reg, uint8_t value) {
     return write(i2c_fd, data, 2) == 2;
 }
 
+// Lecture avec Repeated Start pour eviter la reinitialisation du pointeur
 bool Accelerometer::readRegisters(uint8_t reg, uint8_t* data, size_t len) {
-    return write(i2c_fd, &reg, 1) == 1 &&
-           read(i2c_fd, data, len) == static_cast<ssize_t>(len);
+    i2c_msg msgs[2];
+
+    // Message 1: Write target register address
+    msgs[0].addr = currentAddress;
+    msgs[0].flags = 0;
+    msgs[0].len = 1;
+    msgs[0].buf = &reg;
+
+    // Message 2: Read payload using Repeated Start
+    msgs[1].addr = currentAddress;
+    msgs[1].flags = I2C_M_RD;
+    msgs[1].len = static_cast<uint16_t>(len);
+    msgs[1].buf = data;
+
+    i2c_rdwr_ioctl_data rdwr{};
+    rdwr.msgs = msgs;
+    rdwr.nmsgs = 2;
+
+    return ioctl(i2c_fd, I2C_RDWR, &rdwr) >= 0;
 }
 
 bool Accelerometer::readRegister(uint8_t reg, uint8_t& value) {
@@ -53,18 +72,18 @@ int Accelerometer::initializeAccelerometer(int& address) {
         return -1;
     }
 
-    // Le MMA8452 utilise 0x1D ou 0x1C selon l'etat de la broche SA0
     const uint8_t possibleAddresses[] = {0x1D, 0x1C};
     bool detected = false;
     uint8_t id = 0;
 
     for (uint8_t addr : possibleAddresses) {
-        if (ioctl(i2c_fd, I2C_SLAVE, addr) < 0) {
+        currentAddress = addr;
+        if (ioctl(i2c_fd, I2C_SLAVE, currentAddress) < 0) {
             continue;
         }
 
         if (readRegister(0x0D, id)) {
-            address = addr;
+            address = currentAddress;
             detected = true;
             break;
         }
@@ -78,7 +97,6 @@ int Accelerometer::initializeAccelerometer(int& address) {
         return -1;
     }
 
-    // Verification de l'identifiant WHO_AM_I
     // MMA8452Q = 0x2A | MMA8451Q = 0x1A | MMA8453Q = 0x3A
     if (id != 0x2A && id != 0x1A && id != 0x3A) {
         std::cerr << "[ACCEL] Unexpected chip ID: 0x" << std::hex << static_cast<int>(id)
@@ -88,7 +106,7 @@ int Accelerometer::initializeAccelerometer(int& address) {
         return -1;
     }
 
-    // Configuration : Standby puis Actif
+    // Configuration : Standby puis Actif (100 Hz ODR)
     if (!writeRegister(0x2A, 0x00) || !writeRegister(0x2A, 0x19)) {
         std::cerr << "[ACCEL] Failed to configure control registers: "
                   << std::strerror(errno) << '\n';
@@ -97,7 +115,7 @@ int Accelerometer::initializeAccelerometer(int& address) {
         return -1;
     }
 
-    std::cout << "[ACCEL] Accelerometer detected at 0x" << std::hex << address
+    std::cout << "[ACCEL] MMA8452 detected at 0x" << std::hex << address
               << " with chip ID 0x" << static_cast<int>(id) << std::dec << '\n';
     return 0;
 }
@@ -145,7 +163,6 @@ void Accelerometer::run() {
     };
 
     while (isRunning.load(std::memory_order_relaxed)) {
-        // 1. Check if MainThread triggered a file rotation
         uint64_t currentGlobalIndex = sharedFileIndex.load(std::memory_order_relaxed);
         if (currentGlobalIndex != localFileIndex) {
             flushBuffer();
@@ -155,7 +172,6 @@ void Accelerometer::run() {
             std::cout << "[ACCEL] Rotated to file index " << localFileIndex << "\n";
         }
 
-        // 2. Read sensor and append to buffer
         double x, y, z;
         if (readAcceleration(x, y, z)) {
             auto now = std::chrono::system_clock::now().time_since_epoch();
@@ -177,7 +193,6 @@ void Accelerometer::run() {
     flushBuffer();
     outFile.close();
 
-    // Set accelerometer to standby before closing
     writeRegister(0x2A, 0x00);
     close(i2c_fd);
     i2c_fd = -1;

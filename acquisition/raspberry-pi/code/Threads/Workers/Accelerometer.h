@@ -30,6 +30,7 @@ private:
 
     const std::atomic<uint64_t>& sharedFileIndex;
     int i2c_fd{-1};
+    uint8_t currentAddress{0x1D};
 
     std::atomic<bool> isRunning{false};
     std::thread workerThread;
