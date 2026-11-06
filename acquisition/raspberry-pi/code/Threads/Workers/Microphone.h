@@ -10,9 +10,11 @@
 
 class Microphone {
 public:
+    // Constructeur utilisé par MainThread (par défaut sur /dev/ttyUSB0)
     explicit Microphone(const std::atomic<uint64_t>& fileIndexRef);
 
-    Microphone(std::string portPath, const std::atomic<uint64_t> &fileIndexRef);
+    // Constructeur avec choix du port
+    Microphone(std::string portPath, const std::atomic<uint64_t>& fileIndexRef);
 
     ~Microphone();
 
@@ -60,4 +62,4 @@ private:
     std::string outputDirectory = "enregistrements";
 };
 
-#endif // MICROPHONE_H
+#endif

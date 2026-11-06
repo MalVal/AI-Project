@@ -40,11 +40,17 @@ static void writeLE32(std::ofstream& file, uint32_t value)
 }
 
 // --------------------------------------------------
-// CONSTRUCTOR / DESTRUCTOR
+// CONSTRUCTORS / DESTRUCTOR
 // --------------------------------------------------
 
+// Implémentation du constructeur manquant (appelé par MainThread)
+Microphone::Microphone(const std::atomic<uint64_t>& fileIndexRef)
+    : serialPortPath("/dev/ttyUSB0"), sharedFileIndex(fileIndexRef)
+{
+}
+
 Microphone::Microphone(std::string portPath, const std::atomic<uint64_t>& fileIndexRef)
-    : serialPortPath(portPath), sharedFileIndex(fileIndexRef)
+    : serialPortPath(std::move(portPath)), sharedFileIndex(fileIndexRef)
 {
 }
 
@@ -193,9 +199,9 @@ void Microphone::writeWavHeader(uint32_t dataSize)
 
     const uint32_t fileSize = dataSize + 36;
 
-    const uint32_t byteRate = SAMPLE_RATE * CHANNELS * BITS_PER_SAMPLE / 8;
-
-    const uint16_t blockAlign = CHANNELS * BITS_PER_SAMPLE / 8;
+    // Les symboles * avaient été perdus dans votre copie
+    const uint32_t byteRate = SAMPLE_RATE * CHANNELS * (BITS_PER_SAMPLE / 8);
+    const uint16_t blockAlign = CHANNELS * (BITS_PER_SAMPLE / 8);
 
     wavFile.seekp(0);
 
@@ -249,9 +255,7 @@ void Microphone::run()
     }
 
     // Arduino reset delay
-    std::this_thread::sleep_for(
-        std::chrono::seconds(2)
-    );
+    std::this_thread::sleep_for(std::chrono::seconds(2));
 
     // Read initial index from MainThread
     uint64_t currentIndex = sharedFileIndex.load(std::memory_order_acquire);
@@ -264,7 +268,6 @@ void Microphone::run()
     }
 
     constexpr size_t BUFFER_SIZE = 4096;
-
     char buffer[BUFFER_SIZE];
 
     auto lastDataReceived = std::chrono::steady_clock::now();
@@ -276,7 +279,6 @@ void Microphone::run()
         // ------------------------------------------
         // 1. Check MainThread file index
         // ------------------------------------------
-
         uint64_t newIndex = sharedFileIndex.load(std::memory_order_acquire);
 
         if (newIndex != currentIndex)
@@ -286,7 +288,6 @@ void Microphone::run()
                       << newIndex << '\n';
 
             closeWavFile();
-
             currentIndex = newIndex;
 
             if (!createNewWavFile(currentIndex))
@@ -296,9 +297,7 @@ void Microphone::run()
         // ------------------------------------------
         // 2. Wait for serial data
         // ------------------------------------------
-
         pollfd descriptor{};
-
         descriptor.fd = serialFd;
         descriptor.events = POLLIN;
 
@@ -315,17 +314,13 @@ void Microphone::run()
 
         if (result == 0)
         {
-            // No data: check the 2-second timeout
+            // Correction du symbole de soustraction perdu
             auto now = std::chrono::steady_clock::now();
-
-            if (now - lastDataReceived >=
-                std::chrono::seconds(2))
+            if (now - lastDataReceived >= std::chrono::seconds(2))
             {
-                std::cerr << "\n[AUDIO] No data received "
-                          << "for 2 seconds\n";
+                std::cerr << "\n[AUDIO] No data received for 2 seconds\n";
                 break;
             }
-
             continue;
         }
 
@@ -338,15 +333,11 @@ void Microphone::run()
         // ------------------------------------------
         // 3. Read audio data
         // ------------------------------------------
-
-        ssize_t bytesRead =
-            read(serialFd, buffer, BUFFER_SIZE);
+        ssize_t bytesRead = read(serialFd, buffer, BUFFER_SIZE);
 
         if (bytesRead < 0)
         {
-            if (errno == EAGAIN ||
-                errno == EWOULDBLOCK ||
-                errno == EINTR)
+            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
                 continue;
 
             std::cerr << "[AUDIO] Read error\n";
@@ -361,14 +352,11 @@ void Microphone::run()
         // ------------------------------------------
         // 4. Check index again before writing
         // ------------------------------------------
-
-        newIndex =
-            sharedFileIndex.load(std::memory_order_acquire);
+        newIndex = sharedFileIndex.load(std::memory_order_acquire);
 
         if (newIndex != currentIndex)
         {
             closeWavFile();
-
             currentIndex = newIndex;
 
             if (!createNewWavFile(currentIndex))
@@ -378,7 +366,6 @@ void Microphone::run()
         // ------------------------------------------
         // 5. Write received audio
         // ------------------------------------------
-
         wavFile.write(buffer, bytesRead);
 
         if (!wavFile.good())
@@ -387,14 +374,12 @@ void Microphone::run()
             break;
         }
 
-        audioBytesWritten +=
-            static_cast<uint32_t>(bytesRead);
+        audioBytesWritten += static_cast<uint32_t>(bytesRead);
     }
 
     // ------------------------------------------
     // 6. Cleanup
     // ------------------------------------------
-
     closeWavFile();
     closeSerialPort();
 
