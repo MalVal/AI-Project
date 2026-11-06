@@ -3,6 +3,10 @@
 #include <iostream>
 #include <array>
 #include <chrono>
+#include <ctime>
+#include <iomanip>
+#include <sstream>
+#include <filesystem>
 #include <cstring>
 #include <cerrno>
 
@@ -11,6 +15,8 @@
 #include <sys/ioctl.h>
 #include <linux/i2c.h>
 #include <linux/i2c-dev.h>
+
+namespace fs = std::filesystem;
 
 Accelerometer::Accelerometer(const std::atomic<uint64_t>& fileIndexRef)
     : sharedFileIndex(fileIndexRef) {}
@@ -33,22 +39,39 @@ void Accelerometer::stop() {
     }
 }
 
+std::string Accelerometer::generateFileName(uint64_t fileIndex) const {
+    fs::create_directories(outputDirectory);
+
+    auto now = std::chrono::system_clock::now();
+    auto time = std::chrono::system_clock::to_time_t(now);
+
+    std::tm localTime{};
+    localtime_r(&time, &localTime);
+
+    std::ostringstream filename;
+    filename << outputDirectory
+             << "/accel_data_"
+             << std::put_time(&localTime, "%Y%m%d_%H%M%S")
+             << "_"
+             << fileIndex
+             << ".csv";
+
+    return filename.str();
+}
+
 bool Accelerometer::writeRegister(uint8_t reg, uint8_t value) {
     uint8_t data[] = {reg, value};
     return write(i2c_fd, data, 2) == 2;
 }
 
-// Lecture avec Repeated Start pour eviter la reinitialisation du pointeur
 bool Accelerometer::readRegisters(uint8_t reg, uint8_t* data, size_t len) {
     i2c_msg msgs[2];
 
-    // Message 1: Write target register address
     msgs[0].addr = currentAddress;
     msgs[0].flags = 0;
     msgs[0].len = 1;
     msgs[0].buf = &reg;
 
-    // Message 2: Read payload using Repeated Start
     msgs[1].addr = currentAddress;
     msgs[1].flags = I2C_M_RD;
     msgs[1].len = static_cast<uint16_t>(len);
@@ -78,9 +101,7 @@ int Accelerometer::initializeAccelerometer(int& address) {
 
     for (uint8_t addr : possibleAddresses) {
         currentAddress = addr;
-        if (ioctl(i2c_fd, I2C_SLAVE, currentAddress) < 0) {
-            continue;
-        }
+        if (ioctl(i2c_fd, I2C_SLAVE, currentAddress) < 0) continue;
 
         if (readRegister(0x0D, id)) {
             address = currentAddress;
@@ -97,7 +118,6 @@ int Accelerometer::initializeAccelerometer(int& address) {
         return -1;
     }
 
-    // MMA8452Q = 0x2A | MMA8451Q = 0x1A | MMA8453Q = 0x3A
     if (id != 0x2A && id != 0x1A && id != 0x3A) {
         std::cerr << "[ACCEL] Unexpected chip ID: 0x" << std::hex << static_cast<int>(id)
                   << std::dec << " (expected 0x2A)\n";
@@ -106,7 +126,6 @@ int Accelerometer::initializeAccelerometer(int& address) {
         return -1;
     }
 
-    // Configuration : Standby puis Actif (100 Hz ODR)
     if (!writeRegister(0x2A, 0x00) || !writeRegister(0x2A, 0x19)) {
         std::cerr << "[ACCEL] Failed to configure control registers: "
                   << std::strerror(errno) << '\n';
@@ -150,7 +169,10 @@ void Accelerometer::run() {
     }
 
     uint64_t localFileIndex = sharedFileIndex.load(std::memory_order_relaxed);
-    std::ofstream outFile("accel_data_" + std::to_string(localFileIndex) + ".csv");
+    std::string currentFilePath = generateFileName(localFileIndex);
+    std::ofstream outFile(currentFilePath);
+
+    std::cout << "[ACCEL] New file: " << currentFilePath << '\n';
 
     std::string buffer;
     buffer.reserve(8192);
@@ -163,15 +185,20 @@ void Accelerometer::run() {
     };
 
     while (isRunning.load(std::memory_order_relaxed)) {
+        // 1. Rotation de fichier si le MainThread change l'index
         uint64_t currentGlobalIndex = sharedFileIndex.load(std::memory_order_relaxed);
         if (currentGlobalIndex != localFileIndex) {
             flushBuffer();
             outFile.close();
+
             localFileIndex = currentGlobalIndex;
-            outFile.open("accel_data_" + std::to_string(localFileIndex) + ".csv");
-            std::cout << "[ACCEL] Rotated to file index " << localFileIndex << "\n";
+            currentFilePath = generateFileName(localFileIndex);
+            outFile.open(currentFilePath);
+
+            std::cout << "[ACCEL] Rotated to: " << currentFilePath << "\n";
         }
 
+        // 2. Échantillonnage et bufferisation
         double x, y, z;
         if (readAcceleration(x, y, z)) {
             auto now = std::chrono::system_clock::now().time_since_epoch();

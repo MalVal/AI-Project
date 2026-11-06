@@ -20,10 +20,11 @@ public:
 
 private:
     void run();
+    std::string generateFileName(uint64_t fileIndex) const;
+
     int initializeAccelerometer(int& address);
     bool readAcceleration(double& x, double& y, double& z);
 
-    // I2C helper methods
     bool writeRegister(uint8_t reg, uint8_t value);
     bool readRegisters(uint8_t reg, uint8_t* data, size_t len);
     bool readRegister(uint8_t reg, uint8_t& value);
@@ -31,6 +32,8 @@ private:
     const std::atomic<uint64_t>& sharedFileIndex;
     int i2c_fd{-1};
     uint8_t currentAddress{0x1D};
+
+    const std::string outputDirectory = "accelerometer";
 
     std::atomic<bool> isRunning{false};
     std::thread workerThread;
