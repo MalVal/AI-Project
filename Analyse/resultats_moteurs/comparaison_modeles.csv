@@ -1,4 +1,0 @@
-﻿modele;test_accuracy;test_loss;meilleure_val_loss;test_images;correctes
-lstm_baseline;1.0000;0.1897;0.1918;42;42
-lstm;0.6190;0.8469;0.8601;42;26
-cnn;0.3333;1.0997;1.0981;42;14
