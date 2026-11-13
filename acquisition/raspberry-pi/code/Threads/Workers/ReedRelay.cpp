@@ -7,6 +7,7 @@
 #include <chrono>
 #include <algorithm>
 
+#include <sys/ioctl.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <termios.h>
@@ -41,14 +42,21 @@ int ReedRelay::configureSerialPort(int fd) {
     cfsetispeed(&tty, B115200);
     cfsetospeed(&tty, B115200);
 
-    tty.c_cflag |= (CLOCAL | CREAD | CS8);
+    tty.c_cflag |= (CLOCAL | CREAD | CS8 | HUPCL);
     tty.c_cflag &= ~(CSIZE | PARENB | CSTOPB | CRTSCTS);
     tty.c_cc[VMIN] = 0;
     tty.c_cc[VTIME] = 0;
 
     if (tcsetattr(fd, TCSANOW, &tty) != 0) return -1;
 
-    // Flush initial serial garbage from USB buffer
+    // Force DTR and RTS high so the Arduino USB interface transmits data
+    int status = TIOCM_DTR | TIOCM_RTS;
+    ioctl(fd, TIOCMBIS, &status);
+
+    // Wait 2 seconds for Arduino Uno bootloader reset to complete
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+
+    // Flush any garbage generated during the reset
     tcflush(fd, TCIFLUSH);
     return 0;
 }
