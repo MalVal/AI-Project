@@ -3,9 +3,14 @@
 
 #include <atomic>
 #include <thread>
-#include <fstream>
+#include <string>
+#include <mutex>
+#include <cstdint>
 
 #include "Workers/ReedLapEvent.h"
+
+class Accelerometer;
+class Microphone;
 
 class MainThread {
 public:
@@ -13,7 +18,6 @@ public:
     ~MainThread();
     void waitEnd();
 
-    // Empêche la copie
     MainThread(const MainThread&) = delete;
     MainThread& operator=(const MainThread&) = delete;
 
@@ -24,12 +28,20 @@ private:
     void run();
     void handleLapEvent(const ReedLapEvent& lap);
 
+    void uploadMemoryBuffers(std::string lapsSnapshot);
+    bool sendBufferOverTcp(int sock, const std::string& fileName, const void* data, size_t size);
+    bool sendAll(int sock, const void* data, size_t size);
+
     std::atomic<bool> isRunning{false};
     std::thread workerThread;
-    
-    // Le signal de changement de fichier partagé avec les workers
+
     std::atomic<uint64_t> currentFileIndex{0};
-    std::ofstream lapLog;
+
+    std::mutex lapMutex;
+    std::string lapLogBuffer;
+
+    Accelerometer* accelPtr{nullptr};
+    Microphone* micPtr{nullptr};
 };
 
-#endif //UNTITLED_MAINTHREAD_H
+#endif

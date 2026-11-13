@@ -6,7 +6,6 @@
 #include <ctime>
 #include <iomanip>
 #include <sstream>
-#include <filesystem>
 #include <cstring>
 #include <cerrno>
 
@@ -15,8 +14,6 @@
 #include <sys/ioctl.h>
 #include <linux/i2c.h>
 #include <linux/i2c-dev.h>
-
-namespace fs = std::filesystem;
 
 Accelerometer::Accelerometer(const std::atomic<uint64_t>& fileIndexRef)
     : sharedFileIndex(fileIndexRef) {}
@@ -39,9 +36,14 @@ void Accelerometer::stop() {
     }
 }
 
-std::string Accelerometer::generateFileName(uint64_t fileIndex) const {
-    fs::create_directories(outputDirectory);
+std::vector<Accelerometer::MemoryChunk> Accelerometer::extractReadyChunks() {
+    std::lock_guard<std::mutex> lock(chunksMutex);
+    std::vector<MemoryChunk> extracted;
+    extracted.swap(readyChunks);
+    return extracted;
+}
 
+std::string Accelerometer::generateFileName(uint64_t fileIndex) const {
     auto now = std::chrono::system_clock::now();
     auto time = std::chrono::system_clock::to_time_t(now);
 
@@ -49,8 +51,7 @@ std::string Accelerometer::generateFileName(uint64_t fileIndex) const {
     localtime_r(&time, &localTime);
 
     std::ostringstream filename;
-    filename << outputDirectory
-             << "/accel_data_"
+    filename << "accel_data_"
              << std::put_time(&localTime, "%Y%m%d_%H%M%S")
              << "_"
              << fileIndex
@@ -169,56 +170,50 @@ void Accelerometer::run() {
     }
 
     uint64_t localFileIndex = sharedFileIndex.load(std::memory_order_relaxed);
-    std::string currentFilePath = generateFileName(localFileIndex);
-    std::ofstream outFile(currentFilePath);
+    std::string currentFileName = generateFileName(localFileIndex);
 
-    std::cout << "[ACCEL] New file: " << currentFilePath << '\n';
+    std::string currentBuffer;
+    currentBuffer.reserve(65536);
 
-    std::string buffer;
-    buffer.reserve(8192);
+    std::cout << "[ACCEL] Buffering in RAM for: " << currentFileName << '\n';
 
-    auto flushBuffer = [&]() {
-        if (!buffer.empty()) {
-            outFile.write(buffer.data(), buffer.size());
-            buffer.clear();
+    auto pushCurrentChunk = [&]() {
+        if (!currentBuffer.empty()) {
+            std::lock_guard<std::mutex> lock(chunksMutex);
+            readyChunks.push_back(MemoryChunk{
+                localFileIndex,
+                currentFileName,
+                std::move(currentBuffer)
+            });
+            currentBuffer.clear();
+            currentBuffer.reserve(65536);
         }
     };
 
     while (isRunning.load(std::memory_order_relaxed)) {
-        // 1. Rotation de fichier si le MainThread change l'index
         uint64_t currentGlobalIndex = sharedFileIndex.load(std::memory_order_relaxed);
         if (currentGlobalIndex != localFileIndex) {
-            flushBuffer();
-            outFile.close();
-
+            pushCurrentChunk();
             localFileIndex = currentGlobalIndex;
-            currentFilePath = generateFileName(localFileIndex);
-            outFile.open(currentFilePath);
-
-            std::cout << "[ACCEL] Rotated to: " << currentFilePath << "\n";
+            currentFileName = generateFileName(localFileIndex);
+            std::cout << "[ACCEL] RAM buffer rotated to: " << currentFileName << "\n";
         }
 
-        // 2. Échantillonnage et bufferisation
         double x, y, z;
         if (readAcceleration(x, y, z)) {
             auto now = std::chrono::system_clock::now().time_since_epoch();
             uint64_t timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
 
-            buffer += std::to_string(timestamp) + "," +
-                      std::to_string(x) + "," +
-                      std::to_string(y) + "," +
-                      std::to_string(z) + "\n";
-
-            if (buffer.size() > 4096) {
-                flushBuffer();
-            }
+            currentBuffer += std::to_string(timestamp) + "," +
+                             std::to_string(x) + "," +
+                             std::to_string(y) + "," +
+                             std::to_string(z) + "\n";
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
 
-    flushBuffer();
-    outFile.close();
+    pushCurrentChunk();
 
     writeRegister(0x2A, 0x00);
     close(i2c_fd);
