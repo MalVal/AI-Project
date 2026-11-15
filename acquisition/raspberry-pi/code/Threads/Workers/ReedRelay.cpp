@@ -136,8 +136,6 @@ void ReedRelay::run() {
                         event.lapIndex = ++currentLap;
                         event.arduinoTimestampMs = static_cast<uint32_t>(parsedTime);
 
-                        std::cout << "[REED] LAP DETECTED!" << std::endl;
-
                         if (lapCallback) {
                             lapCallback(event);
                         }
