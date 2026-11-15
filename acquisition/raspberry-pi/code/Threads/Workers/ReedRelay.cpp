@@ -166,57 +166,44 @@ void ReedRelay::run() {
             const char byte = buffer[i];
 
             if (byte == '\n') {
-                while (!line.empty() &&
-                       (line.back() == ' ' || line.back() == '\t')) {
+                // Remove trailing carriage returns and spaces
+                while (!line.empty() && (line.back() == '\r' || line.back() == ' ' || line.back() == '\t')) {
                     line.pop_back();
                 }
 
-                std::cout << "[REED] Complete line received: '" << line << "'"
-                          << std::endl;
+                std::cout << "[REED] Complete line received: '" << line << "'" << std::endl;
 
                 if (!line.empty()) {
                     char* endPtr = nullptr;
+                    unsigned long parsedTime = std::strtoul(line.c_str(), &endPtr, 10);
 
-                    unsigned long parsedTime =
-                        std::strtoul(line.c_str(), &endPtr, 10);
-
-                    if (endPtr != line.c_str() && *endPtr == '\0') {
+                    // Allow parsing to succeed even if there is trailing whitespace that wasn't caught
+                    if (endPtr != line.c_str()) {
                         ReedLapEvent event;
-
                         event.lapIndex = ++currentLap;
-                        event.arduinoTimestampMs =
-                            static_cast<uint32_t>(parsedTime);
+                        event.arduinoTimestampMs = static_cast<uint32_t>(parsedTime);
 
                         std::cout << "[REED] LAP DETECTED!" << std::endl;
-                        std::cout << "[REED] Lap index: " << event.lapIndex
-                                  << std::endl;
-                        std::cout << "[REED] Arduino timestamp: "
-                                  << event.arduinoTimestampMs << " ms"
-                                  << std::endl;
+                        std::cout << "[REED] Lap index: " << event.lapIndex << std::endl;
+                        std::cout << "[REED] Arduino timestamp: " << event.arduinoTimestampMs << " ms" << std::endl;
 
                         if (lapCallback) {
-                            std::cout << "[REED] Calling lap callback..."
-                                      << std::endl;
-
+                            std::cout << "[REED] Calling lap callback..." << std::endl;
                             lapCallback(event);
-
-                            std::cout << "[REED] Callback completed"
-                                      << std::endl;
+                            std::cout << "[REED] Callback completed" << std::endl;
                         } else {
-                            std::cerr << "[REED] Warning: No lap callback registered"
-                                      << std::endl;
+                            std::cerr << "[REED] Warning: No lap callback registered" << std::endl;
                         }
                     } else {
-                        std::cout << "[REED] Ignored non-numeric message: '"
-                                  << line << "'" << std::endl;
+                        std::cout << "[REED] Ignored non-numeric message: '" << line << "'" << std::endl;
                     }
                 }
-
-                line.clear();
-            } else if (byte == '\r') {
-                continue;
-            } else if (line.size() < 64 && byte >= 32 && byte <= 126) {
-                line += byte;
+                line.clear(); // Always clear after processing a newline
+            } else if (byte != '\r') {
+                // Only add printable ASCII characters to prevent parsing errors
+                if (line.size() < 64 && byte >= 32 && byte <= 126) {
+                    line += byte;
+                }
             }
         }
     }
