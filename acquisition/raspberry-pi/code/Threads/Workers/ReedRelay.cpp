@@ -160,7 +160,13 @@ void ReedRelay::run() {
 
         if (bytesRead == 0) continue;
 
-        std::cout << "[REED] Received " << bytesRead << " bytes" << std::endl;
+        // --- DIAGNOSTIC : Affichage des octets bruts en Hexadécimal ---
+        std::cout << "[REED] Received " << bytesRead << " bytes | HEX: ";
+        for (ssize_t i = 0; i < bytesRead; ++i) {
+            std::cout << std::hex << (int)(unsigned char)buffer[i] << " ";
+        }
+        std::cout << std::dec << std::endl; // Retour en affichage décimal standard
+        // --------------------------------------------------------------
 
         for (ssize_t i = 0; i < bytesRead; ++i) {
             const char byte = buffer[i];
