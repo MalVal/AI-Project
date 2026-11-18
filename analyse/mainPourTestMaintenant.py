@@ -10,8 +10,8 @@ import os
 
 warnings.filterwarnings("ignore", category=WavFileWarning)
 
-DOSSIER_AUDIO = "Audio"
-DOSSIER_SORTIE = "DataSetsAnalyse/Spectogramme_Welch_Val"
+DOSSIER_AUDIO = "../acquisition/server-computer/uploads"
+DOSSIER_SORTIE = "Spectogramme_Welch_Val"
 
 os.makedirs(f"{DOSSIER_SORTIE}/Spectrogramme", exist_ok=True)
 os.makedirs(f"{DOSSIER_SORTIE}/PSD", exist_ok=True)
@@ -34,13 +34,16 @@ for fichier in fichiers_audio:
     plt.figure(figsize=(12, 6))
     plt.pcolormesh(temps, frequences, spectrogramme_db, shading="auto")
 
+    plt.xlabel("Temps (s)")
+    plt.ylabel("Fréquence (Hz)")
+    plt.colorbar(label="Puissance (dB/Hz)")
+
     # plt.xscale("linear")
     # plt.yscale("linear")
     # plt.xlim(0, 10)
     # plt.ylim(0, 10000)
 
-    plt.axis("off")
-    plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
+    plt.tight_layout()
     plt.savefig(f"{DOSSIER_SORTIE}/Spectrogramme/{nom_audio}.png", dpi=300, bbox_inches="tight", pad_inches=0)
     plt.close()
 
@@ -48,13 +51,15 @@ for fichier in fichiers_audio:
     plt.figure(figsize=(12, 6))
     plt.plot(frequences_psd, 10 * np.log10(puissance + 1e-12))
 
+    plt.xlabel("Fréquence (Hz)")
+    plt.ylabel("Densité spectrale de puissance (dB/Hz)")
+
     # plt.xscale("linear")
     # plt.yscale("linear")
     # plt.xlim(0, 10000)
     # plt.ylim(-100, 100)
 
-    plt.axis("off")
-    plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
+    plt.tight_layout()
     plt.savefig(f"{DOSSIER_SORTIE}/PSD/{nom_audio}.png", dpi=300, bbox_inches="tight", pad_inches=0)
     plt.close()
 
