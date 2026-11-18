@@ -9,7 +9,7 @@ from scipy import signal
 DOSSIER_CSV = "Accelerometre"
 DOSSIER_SORTIE = "DataSetsAnalyse/Accelerometre_Val"
 
-GRAPHIQUES = ["XYZ", "FFT", "PSD", "Spectrogramme", "3D"]
+GRAPHIQUES = ["XYZ", "Spectrogramme", "3D"]
 
 for graphique in GRAPHIQUES:
     os.makedirs(f"{DOSSIER_SORTIE}/{graphique}", exist_ok=True)
