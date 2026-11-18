@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 from scipy import signal
 
-DOSSIER_CSV = "Accelerometre"
+DOSSIER_CSV = "../acquisition/server-computer/uploads"
 DOSSIER_SORTIE = "DataSetsAnalyse/Accelerometre_Val"
 
 GRAPHIQUES = ["XYZ", "Spectrogramme", "3D"]
