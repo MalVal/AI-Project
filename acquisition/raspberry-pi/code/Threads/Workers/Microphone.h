@@ -5,61 +5,56 @@
 #include <string>
 #include <thread>
 #include <cstdint>
-#include <fstream>
 #include <cstddef>
+#include <vector>
+#include <mutex>
 
 class Microphone {
 public:
-    // Constructeur utilisé par MainThread (par défaut sur /dev/ttyUSB0)
+    struct MemoryChunk {
+        uint64_t index;
+        std::string filename;
+        std::vector<uint8_t> data;
+    };
+
     explicit Microphone(const std::atomic<uint64_t>& fileIndexRef);
-
-    // Constructeur avec choix du port
     Microphone(std::string portPath, const std::atomic<uint64_t>& fileIndexRef);
-
     ~Microphone();
 
-    // Thread lifecycle
     void start();
     void stop();
+
+    std::vector<MemoryChunk> extractReadyChunks();
 
 private:
     std::string serialPortPath;
 
     void run();
 
-    // Serial communication
     bool openSerialPort();
     void closeSerialPort();
 
-    // WAV management
-    bool createNewWavFile(uint64_t fileIndex);
-    void closeWavFile();
-    void writeWavHeader(uint32_t dataSize);
+    void startNewWavBuffer(uint64_t fileIndex);
+    void finalizeCurrentWavBuffer();
+    void writeWavHeaderInRam(std::vector<uint8_t>& buf, uint32_t dataSize);
 
-    // Shared index from MainThread
     const std::atomic<uint64_t>& sharedFileIndex;
 
-    // Thread management
     std::atomic<bool> isRunning{false};
     std::thread workerThread;
 
-    // Serial configuration
     int serialFd = -1;
 
-    // Audio configuration
     static constexpr uint32_t SAMPLE_RATE = 8000;
     static constexpr uint16_t CHANNELS = 1;
     static constexpr uint16_t BITS_PER_SAMPLE = 8;
 
-    // WAV management
-    std::ofstream wavFile;
-    uint32_t audioBytesWritten = 0;
-
-    // Current file
+    std::vector<uint8_t> currentWavBuffer;
+    std::string currentFileName;
     uint64_t activeFileIndex = 0;
 
-    // Output directory
-    std::string outputDirectory = "enregistrements";
+    std::mutex chunksMutex;
+    std::vector<MemoryChunk> readyChunks;
 };
 
 #endif

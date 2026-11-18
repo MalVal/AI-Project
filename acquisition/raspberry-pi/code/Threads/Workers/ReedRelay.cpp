@@ -1,31 +1,34 @@
+
 #include "ReedRelay.h"
 
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <chrono>
+#include <algorithm>
 
+#include <sys/ioctl.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <termios.h>
 #include <unistd.h>
 
 ReedRelay::ReedRelay(std::string portPath, LapCallback onLapDetected)
-    : serialPortPath(std::move(portPath)), lapCallback(std::move(onLapDetected)) {}
+    : serialPortPath(std::move(portPath)), lapCallback(std::move(onLapDetected)) {
+}
 
 ReedRelay::~ReedRelay() {
     stop();
 }
 
 void ReedRelay::start() {
-    // Atomic exchange prevents double-start race conditions
     if (!isRunning.exchange(true)) {
         workerThread = std::thread(&ReedRelay::run, this);
     }
 }
 
 void ReedRelay::stop() {
-    // Atomic exchange ensures stop logic runs only once
     if (isRunning.exchange(false)) {
         if (workerThread.joinable()) {
             workerThread.join();
@@ -44,34 +47,45 @@ int ReedRelay::configureSerialPort(int fd) {
     cfsetispeed(&tty, B115200);
     cfsetospeed(&tty, B115200);
 
-    tty.c_cflag |= (CLOCAL | CREAD | CS8);
     tty.c_cflag &= ~(CSIZE | PARENB | CSTOPB | CRTSCTS);
-
+    tty.c_cflag |= (CS8 | CLOCAL | CREAD | HUPCL);
     tty.c_cc[VMIN] = 0;
     tty.c_cc[VTIME] = 0;
 
-    return tcsetattr(fd, TCSANOW, &tty);
+    if (tcsetattr(fd, TCSANOW, &tty) != 0) {
+        return -1;
+    }
+
+    // Force DTR and RTS high
+    int status = TIOCM_DTR | TIOCM_RTS;
+
+    if (ioctl(fd, TIOCMBIS, &status) != 0) {
+        // Continue even if DTR/RTS cannot be set
+    }
+
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+
+    tcflush(fd, TCIFLUSH);
+
+    return 0;
 }
 
 void ReedRelay::run() {
     int fd = open(serialPortPath.c_str(), O_RDONLY | O_NOCTTY | O_NONBLOCK);
+
     if (fd < 0) {
-        std::cerr << "[REED] Failed to open " << serialPortPath << '\n';
         isRunning.store(false);
         return;
     }
 
     if (configureSerialPort(fd) != 0) {
-        std::cerr << "[REED] Configuration error\n";
         close(fd);
         isRunning.store(false);
         return;
     }
 
-    std::cout << "[REED] Relais Reed ready on " << serialPortPath << std::endl;
-
     std::string line;
-    line.reserve(32);
+    line.reserve(64);
     char buffer[64];
 
     while (isRunning.load(std::memory_order_relaxed)) {
@@ -80,36 +94,60 @@ void ReedRelay::run() {
         descriptor.events = POLLIN;
 
         const int result = poll(&descriptor, 1, 100);
-        if (result <= 0) {
-            continue;
+
+        if (result < 0) {
+            if (errno == EINTR) continue;
+            break;
         }
+
+        if (result == 0) continue;
 
         if (descriptor.revents & (POLLERR | POLLNVAL | POLLHUP)) {
             break;
         }
 
         const ssize_t bytesRead = read(fd, buffer, sizeof(buffer));
+
+        if (bytesRead < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+                continue;
+            }
+            break;
+        }
+
+        if (bytesRead == 0) continue;
+
         for (ssize_t i = 0; i < bytesRead; ++i) {
             const char byte = buffer[i];
 
             if (byte == '\n') {
-                if (!line.empty() && line.back() == '\r') {
+                // Remove trailing carriage returns and spaces
+                while (!line.empty() && (line.back() == '\r' || line.back() == ' ' || line.back() == '\t')) {
                     line.pop_back();
                 }
 
                 if (!line.empty()) {
-                    ReedLapEvent event;
-                    event.lapIndex = ++currentLap;
-                    event.arduinoTimestampMs = static_cast<uint32_t>(std::strtoul(line.c_str(), nullptr, 10));
+                    char* endPtr = nullptr;
+                    unsigned long parsedTime = std::strtoul(line.c_str(), &endPtr, 10);
 
-                    // Trigger the callback managed by MainThread
-                    if (lapCallback) {
-                        lapCallback(event);
+                    // Allow parsing to succeed even if there is trailing whitespace that wasn't caught
+                    if (endPtr != line.c_str()) {
+                        ReedLapEvent event;
+                        event.lapIndex = ++currentLap;
+                        event.arduinoTimestampMs = static_cast<uint32_t>(parsedTime);
+
+                        if (lapCallback) {
+                            lapCallback(event);
+                        }
                     }
                 }
+
                 line.clear();
-            } else if (line.size() < 32) {
-                line += byte;
+            } else if (byte != '\r') {
+                // Only add printable ASCII characters to prevent parsing errors
+                if (line.size() < 64 && byte >= 32 && byte <= 126) {
+                    line += byte;
+                }
             }
         }
     }

@@ -5,7 +5,6 @@
 #include <sstream>
 #include <chrono>
 #include <ctime>
-#include <filesystem>
 #include <cstring>
 #include <cerrno>
 
@@ -14,148 +13,118 @@
 #include <termios.h>
 #include <poll.h>
 
-namespace fs = std::filesystem;
-
-// WAV helpers: write explicitly in little-endian format
-static void writeLE16(std::ofstream& file, uint16_t value)
-{
-    char bytes[2] = {
-        static_cast<char>(value),
-        static_cast<char>(value >> 8)
-    };
-
-    file.write(bytes, 2);
+static void putLE16(uint8_t* dest, uint16_t value) {
+    dest[0] = static_cast<uint8_t>(value & 0xFF);
+    dest[1] = static_cast<uint8_t>((value >> 8) & 0xFF);
 }
 
-static void writeLE32(std::ofstream& file, uint32_t value)
-{
-    char bytes[4] = {
-        static_cast<char>(value),
-        static_cast<char>(value >> 8),
-        static_cast<char>(value >> 16),
-        static_cast<char>(value >> 24)
-    };
-
-    file.write(bytes, 4);
+static void putLE32(uint8_t* dest, uint32_t value) {
+    dest[0] = static_cast<uint8_t>(value & 0xFF);
+    dest[1] = static_cast<uint8_t>((value >> 8) & 0xFF);
+    dest[2] = static_cast<uint8_t>((value >> 16) & 0xFF);
+    dest[3] = static_cast<uint8_t>((value >> 24) & 0xFF);
 }
 
-// --------------------------------------------------
-// CONSTRUCTORS / DESTRUCTOR
-// --------------------------------------------------
-
-// Implémentation du constructeur manquant (appelé par MainThread)
 Microphone::Microphone(const std::atomic<uint64_t>& fileIndexRef)
-    : serialPortPath("/dev/ttyUSB0"), sharedFileIndex(fileIndexRef)
-{
-}
+    : serialPortPath("/dev/ttyUSB0"), sharedFileIndex(fileIndexRef) {}
 
 Microphone::Microphone(std::string portPath, const std::atomic<uint64_t>& fileIndexRef)
-    : serialPortPath(std::move(portPath)), sharedFileIndex(fileIndexRef)
-{
-}
+    : serialPortPath(std::move(portPath)), sharedFileIndex(fileIndexRef) {}
 
-Microphone::~Microphone()
-{
+Microphone::~Microphone() {
     stop();
 }
 
-// --------------------------------------------------
-// START / STOP
-// --------------------------------------------------
-
-void Microphone::start()
-{
+void Microphone::start() {
     bool expected = false;
-
     if (!isRunning.compare_exchange_strong(expected, true))
         return;
 
-    // Join a previous completed thread before restarting
     if (workerThread.joinable())
         workerThread.join();
 
     workerThread = std::thread(&Microphone::run, this);
 }
 
-void Microphone::stop()
-{
+void Microphone::stop() {
     isRunning.store(false);
-
     if (workerThread.joinable()) {
         workerThread.join();
     }
 }
 
-// --------------------------------------------------
-// SERIAL PORT
-// --------------------------------------------------
+std::vector<Microphone::MemoryChunk> Microphone::extractReadyChunks() {
+    std::lock_guard<std::mutex> lock(chunksMutex);
+    std::vector<MemoryChunk> extracted;
+    extracted.swap(readyChunks);
+    return extracted;
+}
 
-bool Microphone::openSerialPort()
-{
-    serialFd = open(
-        serialPortPath.c_str(),
-        O_RDONLY | O_NOCTTY | O_NONBLOCK
-    );
-
-    if (serialFd < 0)
-    {
-        std::cerr << "[AUDIO] Failed to open "
-                  << serialPortPath << " : "
-                  << strerror(errno) << '\n';
+bool Microphone::openSerialPort() {
+    serialFd = open(serialPortPath.c_str(), O_RDONLY | O_NOCTTY | O_NONBLOCK);
+    if (serialFd < 0) {
+        std::cerr << "[AUDIO] Failed to open " << serialPortPath << " : " << strerror(errno) << '\n';
         return false;
     }
 
     termios tty{};
-
-    if (tcgetattr(serialFd, &tty) != 0)
-    {
+    if (tcgetattr(serialFd, &tty) != 0) {
         std::cerr << "[AUDIO] tcgetattr error\n";
         closeSerialPort();
         return false;
     }
 
     cfmakeraw(&tty);
-
     cfsetispeed(&tty, B115200);
     cfsetospeed(&tty, B115200);
 
     tty.c_cflag &= ~(CSIZE | PARENB | CSTOPB | CRTSCTS);
     tty.c_cflag |= CS8 | CLOCAL | CREAD;
-
     tty.c_cc[VMIN] = 0;
     tty.c_cc[VTIME] = 0;
 
-    if (tcsetattr(serialFd, TCSANOW, &tty) != 0)
-    {
+    if (tcsetattr(serialFd, TCSANOW, &tty) != 0) {
         std::cerr << "[AUDIO] tcsetattr error\n";
         closeSerialPort();
         return false;
     }
 
     tcflush(serialFd, TCIFLUSH);
-
     std::cout << "[AUDIO] Serial port opened: " << serialPortPath << '\n';
-
     return true;
 }
 
-void Microphone::closeSerialPort()
-{
-    if (serialFd >= 0)
-    {
+void Microphone::closeSerialPort() {
+    if (serialFd >= 0) {
         close(serialFd);
         serialFd = -1;
     }
 }
 
-// --------------------------------------------------
-// WAV MANAGEMENT
-// --------------------------------------------------
+void Microphone::writeWavHeaderInRam(std::vector<uint8_t>& buf, uint32_t dataSize) {
+    if (buf.size() < 44) return;
 
-bool Microphone::createNewWavFile(uint64_t fileIndex)
-{
-    fs::create_directories(outputDirectory);
+    const uint32_t fileSize = dataSize + 36;
+    const uint32_t byteRate = SAMPLE_RATE * CHANNELS * (BITS_PER_SAMPLE / 8);
+    const uint16_t blockAlign = CHANNELS * (BITS_PER_SAMPLE / 8);
 
+    uint8_t* p = buf.data();
+    std::memcpy(p + 0, "RIFF", 4);
+    putLE32(p + 4, fileSize);
+    std::memcpy(p + 8, "WAVE", 4);
+    std::memcpy(p + 12, "fmt ", 4);
+    putLE32(p + 16, 16);
+    putLE16(p + 20, 1); // PCM
+    putLE16(p + 22, CHANNELS);
+    putLE32(p + 24, SAMPLE_RATE);
+    putLE32(p + 28, byteRate);
+    putLE16(p + 32, blockAlign);
+    putLE16(p + 34, BITS_PER_SAMPLE);
+    std::memcpy(p + 36, "data", 4);
+    putLE32(p + 40, dataSize);
+}
+
+void Microphone::startNewWavBuffer(uint64_t fileIndex) {
     auto now = std::chrono::system_clock::now();
     auto time = std::chrono::system_clock::to_time_t(now);
 
@@ -163,226 +132,118 @@ bool Microphone::createNewWavFile(uint64_t fileIndex)
     localtime_r(&time, &localTime);
 
     std::ostringstream filename;
-
-    filename << outputDirectory
-             << "/audio_"
+    filename << "audio_"
              << std::put_time(&localTime, "%Y%m%d_%H%M%S")
              << "_"
              << fileIndex
              << ".wav";
 
-    wavFile.open(filename.str(), std::ios::binary);
-
-    if (!wavFile.is_open())
-    {
-        std::cerr << "[AUDIO] Cannot create WAV file\n";
-        return false;
-    }
-
-    audioBytesWritten = 0;
+    currentFileName = filename.str();
     activeFileIndex = fileIndex;
 
-    // Écrit un véritable en-tête WAV valide dès le départ (avec une taille de 0)
-    // Cela garantit que le fichier est lisible même en cas de crash du programme.
-    writeWavHeader(0);
+    currentWavBuffer.clear();
+    currentWavBuffer.reserve(256 * 1024); // Pre-allocate 256 KB in RAM
+    currentWavBuffer.resize(44, 0);      // Reserve 44 bytes for WAV header
+    writeWavHeaderInRam(currentWavBuffer, 0);
 
-    std::cout << "[AUDIO] New file: " << filename.str() << '\n';
-
-    return wavFile.good();
+    std::cout << "[AUDIO] New RAM buffer: " << currentFileName << '\n';
 }
 
-void Microphone::writeWavHeader(uint32_t dataSize)
-{
-    if (!wavFile.is_open())
-        return;
-
-    const uint32_t fileSize = dataSize + 36;
-
-    // Les symboles * avaient été perdus dans votre copie
-    const uint32_t byteRate = SAMPLE_RATE * CHANNELS * (BITS_PER_SAMPLE / 8);
-    const uint16_t blockAlign = CHANNELS * (BITS_PER_SAMPLE / 8);
-
-    wavFile.seekp(0);
-
-    wavFile.write("RIFF", 4);
-    writeLE32(wavFile, fileSize);
-
-    wavFile.write("WAVE", 4);
-
-    wavFile.write("fmt ", 4);
-    writeLE32(wavFile, 16);
-
-    writeLE16(wavFile, 1); // PCM
-    writeLE16(wavFile, CHANNELS);
-    writeLE32(wavFile, SAMPLE_RATE);
-    writeLE32(wavFile, byteRate);
-    writeLE16(wavFile, blockAlign);
-    writeLE16(wavFile, BITS_PER_SAMPLE);
-
-    wavFile.write("data", 4);
-    writeLE32(wavFile, dataSize);
-
-    wavFile.seekp(0, std::ios::end);
-}
-
-void Microphone::closeWavFile()
-{
-    if (wavFile.is_open())
-    {
-        writeWavHeader(audioBytesWritten);
-
-        wavFile.close();
-
-        std::cout << "[AUDIO] File closed. Index: "
-                  << activeFileIndex
-                  << " | Bytes: "
-                  << audioBytesWritten
-                  << '\n';
+void Microphone::finalizeCurrentWavBuffer() {
+    if (currentWavBuffer.size() <= 44) {
+        return; // No audio data recorded
     }
+
+    uint32_t dataSize = static_cast<uint32_t>(currentWavBuffer.size() - 44);
+    writeWavHeaderInRam(currentWavBuffer, dataSize);
+
+    std::cout << "[AUDIO] RAM buffer finalized. Index: " << activeFileIndex
+              << " | Audio bytes: " << dataSize << '\n';
+
+    std::lock_guard<std::mutex> lock(chunksMutex);
+    readyChunks.push_back(MemoryChunk{
+        activeFileIndex,
+        currentFileName,
+        std::move(currentWavBuffer)
+    });
+    currentWavBuffer.clear();
 }
 
-// --------------------------------------------------
-// WORKER THREAD
-// --------------------------------------------------
-
-void Microphone::run()
-{
-    if (!openSerialPort())
-    {
+void Microphone::run() {
+    if (!openSerialPort()) {
         isRunning.store(false);
         return;
     }
 
-    // Arduino reset delay
     std::this_thread::sleep_for(std::chrono::seconds(2));
 
-    // Read initial index from MainThread
     uint64_t currentIndex = sharedFileIndex.load(std::memory_order_acquire);
-
-    if (!createNewWavFile(currentIndex))
-    {
-        closeSerialPort();
-        isRunning.store(false);
-        return;
-    }
+    startNewWavBuffer(currentIndex);
 
     constexpr size_t BUFFER_SIZE = 4096;
-    char buffer[BUFFER_SIZE];
+    uint8_t buffer[BUFFER_SIZE];
 
     auto lastDataReceived = std::chrono::steady_clock::now();
+    std::cout << "[AUDIO] Recording in RAM started\n";
 
-    std::cout << "[AUDIO] Recording started\n";
-
-    while (isRunning.load(std::memory_order_acquire))
-    {
-        // ------------------------------------------
-        // 1. Check MainThread file index
-        // ------------------------------------------
+    while (isRunning.load(std::memory_order_acquire)) {
         uint64_t newIndex = sharedFileIndex.load(std::memory_order_acquire);
-
-        if (newIndex != currentIndex)
-        {
-            std::cout << "\n[AUDIO] File rotation: "
-                      << currentIndex << " -> "
-                      << newIndex << '\n';
-
-            closeWavFile();
+        if (newIndex != currentIndex) {
+            std::cout << "\n[AUDIO] RAM buffer rotation: " << currentIndex << " -> " << newIndex << '\n';
+            finalizeCurrentWavBuffer();
             currentIndex = newIndex;
-
-            if (!createNewWavFile(currentIndex))
-                break;
+            startNewWavBuffer(currentIndex);
         }
 
-        // ------------------------------------------
-        // 2. Wait for serial data
-        // ------------------------------------------
         pollfd descriptor{};
         descriptor.fd = serialFd;
         descriptor.events = POLLIN;
 
         int result = poll(&descriptor, 1, 100);
-
-        if (result < 0)
-        {
-            if (errno == EINTR)
-                continue;
-
+        if (result < 0) {
+            if (errno == EINTR) continue;
             std::cerr << "[AUDIO] Poll error\n";
             break;
         }
 
-        if (result == 0)
-        {
-            // Correction du symbole de soustraction perdu
+        if (result == 0) {
             auto now = std::chrono::steady_clock::now();
-            if (now - lastDataReceived >= std::chrono::seconds(2))
-            {
+            if (now - lastDataReceived >= std::chrono::seconds(2)) {
                 std::cerr << "\n[AUDIO] No data received for 2 seconds\n";
                 break;
             }
             continue;
         }
 
-        if (descriptor.revents & (POLLERR | POLLNVAL | POLLHUP))
-        {
+        if (descriptor.revents & (POLLERR | POLLNVAL | POLLHUP)) {
             std::cerr << "[AUDIO] Serial connection lost\n";
             break;
         }
 
-        // ------------------------------------------
-        // 3. Read audio data
-        // ------------------------------------------
         ssize_t bytesRead = read(serialFd, buffer, BUFFER_SIZE);
-
-        if (bytesRead < 0)
-        {
+        if (bytesRead < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
                 continue;
-
             std::cerr << "[AUDIO] Read error\n";
             break;
         }
 
-        if (bytesRead == 0)
-            continue;
+        if (bytesRead == 0) continue;
 
         lastDataReceived = std::chrono::steady_clock::now();
 
-        // ------------------------------------------
-        // 4. Check index again before writing
-        // ------------------------------------------
         newIndex = sharedFileIndex.load(std::memory_order_acquire);
-
-        if (newIndex != currentIndex)
-        {
-            closeWavFile();
+        if (newIndex != currentIndex) {
+            finalizeCurrentWavBuffer();
             currentIndex = newIndex;
-
-            if (!createNewWavFile(currentIndex))
-                break;
+            startNewWavBuffer(currentIndex);
         }
 
-        // ------------------------------------------
-        // 5. Write received audio
-        // ------------------------------------------
-        wavFile.write(buffer, bytesRead);
-
-        if (!wavFile.good())
-        {
-            std::cerr << "[AUDIO] WAV write error\n";
-            break;
-        }
-
-        audioBytesWritten += static_cast<uint32_t>(bytesRead);
+        currentWavBuffer.insert(currentWavBuffer.end(), buffer, buffer + bytesRead);
     }
 
-    // ------------------------------------------
-    // 6. Cleanup
-    // ------------------------------------------
-    closeWavFile();
+    finalizeCurrentWavBuffer();
     closeSerialPort();
-
     isRunning.store(false);
-
     std::cout << "[AUDIO] Worker stopped\n";
 }
